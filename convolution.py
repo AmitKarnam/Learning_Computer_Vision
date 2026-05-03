@@ -10,16 +10,23 @@ def calculate_padding_length(n: int) -> int:
 
 def build_new_image_matrix_with_reflect_padding(img: np.ndarray, pad: np.ndarray) -> np.ndarray:
     # TODO: Break this into basic matrix multiplication 
-    return np.pad(img, ((pad, pad), (pad, pad), (0,0)), mode='reflect')
+    padded_matrix = np.pad(img, ((pad, pad), (pad, pad), (0,0)), mode='reflect')
+    return padded_matrix
 
-def convolute(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    """Given a n*n matrix with n*n kernel return a output matrix, which is a result of convolution operation"""
+def BoxBlurConvolute(img: np.ndarray) -> np.ndarray:
+    """Given a n*n matrix return a clipped output matrix, which is a result of convolution operation"""
+    kernel = np.array([
+        [1/9, 1/9, 1/9],
+        [1/9, 1/9, 1/9],
+        [1/9, 1/9, 1/9]
+    ], dtype=np.float32)
+
     k = kernel.shape[0]
     h,w,c = img.shape
 
     padding_length = calculate_padding_length(len(kernel))
     if padding_length <= 0:
-        return "Error with padding length"
+        raise "Error with padding length"
 
     paddedImg = build_new_image_matrix_with_reflect_padding(img, padding_length)
 
@@ -30,27 +37,52 @@ def convolute(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
             region = paddedImg[i:i+k,j:j+k]
             for ch in range(c):
                 output[i,j,ch] = np.sum(region[:,:,ch] * kernel)
+
+    output = np.clip(output,0,255).astype(np.uint8)
     
     return output
 
+def GuassianBlurConvolute(img: np.array) -> np.ndarray:
+    """ Gaussian Blur, where the emphasis is on nearby pixels than the distant ones"""
+    kernel = np.array([
+        [1/16,2/16,1/16],
+        [2/16,4/16,2/16],
+        [1/16,2/16,1/16],
+    ],dtype=np.float32)
+
+    k = kernel.shape[0]
+    h,w,c = img.shape
+
+    paddingLength = calculate_padding_length(k)
+    if paddingLength < 0:
+        raise "Error calculating padding length"
+    
+    paddedImg = build_new_image_matrix_with_reflect_padding(img,paddingLength)
+
+    output = np.zeros(img.shape, dtype=np.float32)
+
+    for i in range(h):
+        for j in range(w):
+            region = paddedImg[i:i+k,j:j+k]
+            for ch in range(c):
+                output[i,j,ch] = np.sum(region[:,:,ch] * kernel)
+
+    output = np.clip(output,0,255).astype(np.uint8)
+
+    return output
 
 def main():
     img = cv2.imread(imgPath)
-
     img = img.astype(np.float32)
+    #img = np.array([[[1,2,3],[4,5,6],[7,8,9]],[[10,11,12],[13,14,15],[16,17,18]],[[19,20,21],[22,23,24],[25,26,27]]])
+    boxBlur = BoxBlurConvolute(img)
+    gaussianBlur = GuassianBlurConvolute(img)
 
-    kernel = np.array([
-        [1/9, 1/9, 1/9],
-        [1/9, 1/9, 1/9],
-        [1/9, 1/9, 1/9]
-    ], dtype=np.float32)
 
-    imgBlur = convolute(img, kernel)
-
-    result = np.clip(imgBlur,0,255).astype(np.uint8)
 
     cv2.imshow("Original Image", img.astype(np.uint8))
-    cv2.imshow("Convolution Image", result)
+    cv2.imshow("Convolution Image", boxBlur)
+    cv2.imshow("Gaussian Blur Image", gaussianBlur)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
