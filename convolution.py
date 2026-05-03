@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-imgPath = "C:\\Users\\amitk\\Learning_Computer_Vision\\images\\ktm_adventure_390_x.jpeg"
+imgPath = "C:\\Users\\amitk\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 def calculate_padding_length(n: int) -> int:
     if n == 0 or n%2 == 0:
@@ -72,7 +72,7 @@ def GuassianBlurConvolute(img: np.array) -> np.ndarray:
     return output
 
 def SobelXConvolute(img: np.array) -> np.ndarray:
-    """ Detect edge on X-axis """
+    """ It highlights vertical edges. """
 
     kernel = np.array([
         [1,0,-1],
@@ -99,7 +99,7 @@ def SobelXConvolute(img: np.array) -> np.ndarray:
     return output
 
 def SobelYConvolute(img: np.array) -> np.ndarray:
-    """ Detect edge on Y-axis """
+    """ It highlights horizontal edges. """
 
     kernel = np.array([
         [1,2,1],
