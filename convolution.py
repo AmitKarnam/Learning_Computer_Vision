@@ -94,6 +94,7 @@ def SobelXConvolute(img: np.array) -> np.ndarray:
             for ch in range(c):
                 output[i,j,ch] = np.sum(region[:,:,ch] * kernel)
 
+    output = np.abs(output)
     output = np.clip(output,0,255).astype(np.uint8)
 
     return output
@@ -121,6 +122,7 @@ def SobelYConvolute(img: np.array) -> np.ndarray:
             for ch in range(c):
                 output[i,j,ch] = np.sum(region[:,:,ch] * kernel)
 
+    output = np.abs(output)
     output = np.clip(output,0,255).astype(np.uint8)
 
     return output
