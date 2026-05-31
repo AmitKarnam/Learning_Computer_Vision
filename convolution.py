@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-imgPath = "C:\\Users\\amitk\\Learning_Computer_Vision\\images\\rocks.jpg"
+imgPath = "C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 def calculate_padding_length(n: int) -> int:
     if n == 0 or n%2 == 0:
@@ -131,9 +131,9 @@ def LaplaceConvolute(img: np.array) -> np.ndarray:
     """ Detect regions where intensity changes rapidly """
 
     kernel = np.array([
-        [0,1,0],
-        [1,-4,1],
-        [0,1,0],
+        [0,-1,0],
+        [-1,4,-1],
+        [0,-1,0],
     ], dtype=np.float32)
 
     k = kernel.shape[0]
@@ -165,7 +165,7 @@ def main():
     xAxisEdge = SobelXConvolute(img)
     yAxisEdge = SobelYConvolute(img)
     laplaceConvolution = LaplaceConvolute(img)
-
+    laplaceOverGuassian = LaplaceConvolute(gaussianBlur)
 
     cv2.imshow("Original Image", img.astype(np.uint8))
     cv2.imshow("Convolution Image", boxBlur)
@@ -173,6 +173,7 @@ def main():
     cv2.imshow("Sobel X Convolution", xAxisEdge)
     cv2.imshow("Sobel Y Convolution", yAxisEdge)
     cv2.imshow("Laplace Convolution", laplaceConvolution)
+    cv2.imshow("Laplace over a gussian", laplaceOverGuassian)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
