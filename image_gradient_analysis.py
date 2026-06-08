@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-IMAGE_PATH = r"C:\Users\amitk\workspace\Learning_Computer_Vision\images\rocks.jpg"
+IMAGE_PATH = r"C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 # Half strip size.
 # Actual strip height = 2 * STRIP_HALF_HEIGHT
