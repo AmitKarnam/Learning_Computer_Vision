@@ -121,7 +121,24 @@ def NonMaximaSupression(magnitude: np.ndarray, direction: np.ndarray):
     
     return output
 
-                
+def DoubleThreshold(magnitude: np.ndarray):
+    HIGH = magnitude.max() * 0.2
+    LOW = HIGH * 0.5
+
+    rows,colums,ch = magnitude.shape
+
+    result = np.zeros((rows,colums,ch), dtype=np.float32)
+
+    for c in range(ch):
+        for row in range(rows):
+            for column in range(colums):
+                value = magnitude[row,column,ch]
+                if value >= HIGH:
+                    result[row,column,ch] = HIGH
+                elif value >= LOW:
+                    result[row,column,ch] = LOW
+
+    return 
 
 
 if __name__ == "__main__":
