@@ -4,6 +4,14 @@ import numpy as np
 NumberOfImagesPerOctave = 3.0
 NumberOfGaussianImagesPerOctave = NumberOfImagesPerOctave + 3.0 # We need enough images to calculate the DoG
 
+@dataclass
+class KeyPoint:
+    x: int
+    y: int
+    octave: int
+    layer: int
+    response: float
+
 def DifferenceOfGaussian(image_pyramid: list[list[np.ndarray]]) -> list[list[np.ndarray]]:
     """
     Compute the Difference-of-Gaussian (DoG) pyramid from an image pyramid.
@@ -149,6 +157,82 @@ def GaussianConvolution(
             output[y, x] = np.sum(window * kernel)
 
     return output
+
+def ScaleSpaceExtremaDetection(dog_pyramid: list[list[np.ndarray]]) -> list[KeyPoint]:
+    """
+    Detect scale-space extrema in a Difference-of-Gaussian (DoG) pyramid.
+
+    For each pixel in each interior DoG layer of each octave, compares the
+    pixel against its 26 neighbors (8 in the same layer, 9 in the layer
+    above, 9 in the layer below). A pixel that is strictly greater than, or
+    strictly less than, all 26 neighbors is recorded as a keypoint.
+
+    Args:
+        dog_pyramid: A list of octaves, where each octave is a list of DoG
+            images (numpy arrays) sorted by increasing blur.
+
+    Returns:
+        A list of KeyPoint instances marking detected extrema.
+    """
+    keypoints = []
+
+    for index,octave in enumerate(dog_pyramid):
+        for layer in range(1,len(octave)-1):
+            height,width = octave[layer].shape
+
+            for y in range(1, height - 1):
+                for x in range(1, width - 1):
+                    candidate = octave[layer][y][x]
+
+                    # Neighbours same "sigma": octave[layer][y][x-1] ; octave[layer][y][x+1]
+                    # Upper Neighbours same "sigma": octave[layer][y-1][x-1] ; octave[layer][y-1][x] ; octave[layer][y-1][x+1]
+                    # Lower Neighbours same "sigma": octave[layer][y+1][x-1] ; octave[layer][y+1][x] ; octave[layer][y+1][x+1]
+
+                    # Neighbours  "sigma-1": octave[layer-1][y][x-1] ; octave[layer-1][y][x] ; octave[layer-1][y][x+1]
+                    # Upper Neighbours "sigma-1": octave[layer-1][y-1][x-1] ; octave[layer-1][y-1][x] ; octave[layer-1][y-1][x+1]
+                    # Lower Neighbours "sigma-1": octave[layer-1][y+1][x-1] ; octave[layer-1][y+1][x] ; octave[layer-1][y+1][x+1]
+
+                    # Neighbours  "sigma+1": octave[layer+1][y][x-1] ; octave[layer+1][y][x] ; octave[layer+1][y][x+1]
+                    # Upper Neighbours "sigma+1": octave[layer+1][y-1][x-1] ; octave[layer+1][y-1][x] ; octave[layer+1][y-1][x+1]
+                    # Lower Neighbours "sigma+1": octave[layer+1][y+1][x-1] ; octave[layer+1][y+1][x] ; octave[layer+1][y+1][x+1]
+
+                    is_max = True
+                    is_min = True
+
+                    curr = octave[layer]
+                    prev = octave[layer - 1]
+                    next_ = octave[layer + 1]
+
+                    neighbors = (
+                        curr[y-1][x-1], curr[y-1][x], curr[y-1][x+1],
+                        curr[y][x-1],                 curr[y][x+1],
+                        curr[y+1][x-1], curr[y+1][x], curr[y+1][x+1],
+
+                        prev[y-1][x-1], prev[y-1][x], prev[y-1][x+1],
+                        prev[y][x-1],   prev[y][x],   prev[y][x+1],
+                        prev[y+1][x-1], prev[y+1][x], prev[y+1][x+1],
+
+                        next_[y-1][x-1], next_[y-1][x], next_[y-1][x+1],
+                        next_[y][x-1],   next_[y][x],   next_[y][x+1],
+                        next_[y+1][x-1], next_[y+1][x], next_[y+1][x+1],
+                    )
+
+                    for neighbor in neighbors:
+                        if candidate <= neighbor:
+                            is_max = False
+
+                        if candidate >= neighbor:
+                            is_min = False
+
+                        if not is_max and not is_min:
+                            break
+
+                    if is_max or is_min:
+                        keypoints.append(
+                            KeyPoint(x=x, y=y, octave=index, layer=layer, response=candidate)
+                        )
+
+    return keypoints
 
 
 def main():
