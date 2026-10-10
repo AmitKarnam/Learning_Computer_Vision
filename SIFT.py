@@ -3,6 +3,7 @@ import numpy as np
 
 NumberOfImagesPerOctave = 3.0
 NumberOfGaussianImagesPerOctave = NumberOfImagesPerOctave + 3.0 # We need enough images to calculate the DoG
+ContrastThreshold = 0.03
 
 @dataclass
 class KeyPoint:
@@ -159,6 +160,8 @@ def GaussianConvolution(
     return output
 
 def ScaleSpaceExtremaDetection(dog_pyramid: list[list[np.ndarray]]) -> list[KeyPoint]:
+
+
     """
     Detect scale-space extrema in a Difference-of-Gaussian (DoG) pyramid.
 
@@ -234,6 +237,132 @@ def ScaleSpaceExtremaDetection(dog_pyramid: list[list[np.ndarray]]) -> list[KeyP
 
     return keypoints
 
+def _compute_3d_gradient(octave_dog: list[np.ndarray], layer: int, y: int, x: int) -> np.ndarray:
+    """
+    Calculates rate of change using central difference apporximation 
+    """
+    d_dx = 0.5 * (octave_dog[layer][y, x+1] - octave_dog[layer][y, x-1])
+    d_dy = 0.5 * (octave_dog[layer][y+1, x] - octave_dog[layer][y-1, x])
+    d_ds = 0.5 * (octave_dog[layer+1][y,x]  - octave_dog[layer-1][y,x])
+
+    return np.array([d_dx,d_dy,d_ds],dtype = np.float64)
+
+def _compute_hessian(octave_dog: list[np.ndarray], layer: int, y: int, x: int) -> np.ndarray:
+    """
+    Hessain calculates the " rate of change of rate of change of D"; i.e Rate of change of slope(x+1) wrt to slope(x-1)
+    slope(x+1) = D(x+1) - D(x)
+    slope(x-1) = D(x) - D(x-1)
+    """
+
+    center = octave_dog[layer][y, x]
+
+    d_xx = octave_dog[layer][y, x + 1] + octave_dog[layer][y, x - 1] - 2.0 * center
+    d_yy = octave_dog[layer][y + 1, x] + octave_dog[layer][y - 1, x] - 2.0 * center
+    d_ss = octave_dog[layer + 1][y, x] + octave_dog[layer - 1][y, x] - 2.0 * center
+
+    d_xy = 0.25 * (
+        octave_dog[layer][y + 1, x + 1] - octave_dog[layer][y + 1, x - 1]
+        - octave_dog[layer][y - 1, x + 1] + octave_dog[layer][y - 1, x - 1]
+    )
+    d_xs = 0.25 * (
+        octave_dog[layer + 1][y, x + 1] - octave_dog[layer + 1][y, x - 1]
+        - octave_dog[layer - 1][y, x + 1] + octave_dog[layer - 1][y, x - 1]
+    )
+    d_ys = 0.25 * (
+        octave_dog[layer + 1][y + 1, x] - octave_dog[layer + 1][y - 1, x]
+        - octave_dog[layer - 1][y + 1, x] + octave_dog[layer - 1][y - 1, x]
+    )
+
+    return np.array(
+        [[d_xx, d_xy, d_xs],
+         [d_xy, d_yy, d_ys],
+         [d_xs, d_ys, d_ss]],
+        dtype=np.float64,
+    )
+
+def _is_edge_like(hessian: np.ndarray,curvature_ratio: float = 10.0,) -> bool:
+    # Extract the spatial 2x2 Hessian.
+    H_xy = hessian[:2, :2]
+
+    trace = np.trace(H_xy)
+    determinant = np.linalg.det(H_xy)
+
+    # A nonpositive determinant fails the spatial curvature test.
+    if determinant <= 0:
+        return True
+
+    ratio = (trace * trace) / determinant
+    threshold = ((curvature_ratio + 1) ** 2) / curvature_ratio
+
+    return ratio >= threshold
+
+def KeypointLocalization(keypoints: list[KeyPoint],dog_pyramid: list[list[np.ndarray]],max_iterations: int = 5,) -> list[KeyPoint]:
+
+    localized_keypoints = []
+
+    for keypoint in keypoints:
+        octave_dog = dog_pyramid[keypoint.octave]
+
+        x = keypoint.x
+        y = keypoint.y
+        layer = keypoint.layer
+
+        converged = False
+
+        for _ in range(max_iterations):
+            # Ensure the 3D neighborhood exists.
+            if not (1 <= layer < len(octave_dog) - 1 and 1 <= y < octave_dog[layer].shape[0] - 1 and 1 <= x < octave_dog[layer].shape[1] - 1):
+                break
+
+            gradient_of_DoG = _compute_3d_gradient(octave_dog, layer, y, x)
+            hessian_of_DoG = _compute_hessian(octave_dog, layer, y, x)
+
+            try:
+                delta = np.linalg.solve(hessian_of_DoG, -gradient_of_DoG)
+            except np.linalg.LinAlgError:
+                break
+
+            if np.all(np.abs(delta) < 0.5):
+                converged = True
+                break
+
+            x += int(np.sign(delta[0])) if abs(delta[0]) >= 0.5 else 0
+            y += int(np.sign(delta[1])) if abs(delta[1]) >= 0.5 else 0
+            layer += int(np.sign(delta[2])) if abs(delta[2]) >= 0.5 else 0
+
+        if not converged:
+            continue
+
+        # Calculating contrast and elimnating low contrast values
+        # there is no universal threshold independent of image intensity scaling and implementation.Lowe's original SIFT method uses a contrast threshold of approximately (0.03) when image intensities are normalized to ([0,1]).
+        # NOTE: OpenCV's SIFT applies its contrast threshold with additional scaling related to the number of scale layers.
+        contrast = octave_dog[layer][y][x] + (0.5* np.dot(gradient_of_DoG,delta))
+        if abs(contrast) < ContrastThreshold:
+            continue
+
+        # Edge Rejection Goal: Even if a keypoint has strong contrast, can we reliably determine where it is located?
+        if _is_edge_like(hessian_of_DoG):
+            continue
+
+        localized_keypoint = KeyPoint(
+            x=float(x + delta[0]),
+            y=float(y + delta[1]),
+            octave=keypoint.octave,
+            layer=float(layer + delta[2]),
+            response=float(contrast),
+        )
+
+        localized_keypoints.append(localized_keypoint)
+
+    return localized_keypoints
+
+
+def OrientationAssignment(image_pyramid: list[list[np.ndarray]], keypoint_array: list[KeyPoint], ):
+    for keypoint in keypoint_array:
+        octave = keypoint.octave
+        spatialWeightingProfile = 1.5 * octave
+        radius = 3 * spatialWeightingProfile
+        gaussianImg = image_pyramid[keypoint.octave][keypoint.layer]
 
 def main():
     """
