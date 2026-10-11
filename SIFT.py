@@ -1,9 +1,12 @@
 import cv2
 import numpy as np
+import math
+from dataclasses import dataclass
 
 NumberOfImagesPerOctave = 3.0
 NumberOfGaussianImagesPerOctave = NumberOfImagesPerOctave + 3.0 # We need enough images to calculate the DoG
-ContrastThreshold = 0.03
+ContrastThreshold = 0.03 * 255
+NumberOfLayersInImagePyramid = 3
 
 @dataclass
 class KeyPoint:
@@ -12,6 +15,7 @@ class KeyPoint:
     octave: int
     layer: int
     response: float
+    orientation: float = 0.0
 
 def DifferenceOfGaussian(image_pyramid: list[list[np.ndarray]]) -> list[list[np.ndarray]]:
     """
@@ -356,40 +360,337 @@ def KeypointLocalization(keypoints: list[KeyPoint],dog_pyramid: list[list[np.nda
 
     return localized_keypoints
 
+def _compute_2d_gradient(image: np.ndarray,y: int,x: int,) -> tuple[float, float]:
+    """
+    Compute image gradients using central differences.
 
-def OrientationAssignment(image_pyramid: list[list[np.ndarray]], keypoint_array: list[KeyPoint], ):
+    Returns:
+        (dx, dy)
+    """
+    dx = 0.5 * (
+        float(image[y, x + 1]) -
+        float(image[y, x - 1])
+    )
+
+    dy = 0.5 * (
+        float(image[y + 1, x]) -
+        float(image[y - 1, x])
+    )
+
+    return dx, dy
+
+def _smooth_orientation_histogram(
+    histogram: np.ndarray,
+    iterations: int = 6,
+) -> np.ndarray:
+    """
+    Smooth the circular orientation histogram using
+    the five-element kernel [1, 4, 6, 4, 1] / 16.
+    """
+    histogram = histogram.copy()
+
+    for _ in range(iterations):
+        histogram = (
+            np.roll(histogram, 2)
+            + 4.0 * np.roll(histogram, 1)
+            + 6.0 * histogram
+            + 4.0 * np.roll(histogram, -1)
+            + np.roll(histogram, -2)
+        ) / 16.0
+
+    return histogram
+
+def _find_orientation_peaks(
+    histogram: np.ndarray,
+    peak_ratio: float = 0.8,
+) -> list[float]:
+    """
+    Find dominant orientation peaks and interpolate their
+    positions using a quadratic approximation.
+
+    Returns:
+        Peak orientations in radians in [0, 2*pi).
+    """
+    num_bins = len(histogram)
+    max_value = float(np.max(histogram))
+
+    if max_value <= 0:
+        return []
+
+    orientations = []
+
+    for i in range(num_bins):
+        left = histogram[(i - 1) % num_bins]
+        center = histogram[i]
+        right = histogram[(i + 1) % num_bins]
+
+        # Local maximum with sufficient magnitude.
+        if not (center > left and center > right):
+            continue
+
+        if center < peak_ratio * max_value:
+            continue
+
+        # Quadratic interpolation of the histogram peak.
+        denominator = left - 2.0 * center + right
+
+        if abs(denominator) > 1e-12:
+            offset = 0.5 * (left - right) / denominator
+        else:
+            offset = 0.0
+
+        # Keep interpolation within the adjacent-bin interval.
+        offset = float(np.clip(offset, -0.5, 0.5))
+
+        peak_bin = (i + offset) % num_bins
+
+        angle = 2.0 * np.pi * peak_bin / num_bins
+        orientations.append(float(angle))
+
+    return orientations
+
+def OrientationAssignment(image_pyramid: list[list[np.ndarray]],keypoint_array: list[KeyPoint],num_bins: int = 36,orientation_peak_ratio: float = 0.8,) -> list[KeyPoint]:
+    """
+    Assign dominant orientations to localized SIFT keypoints.
+
+    For each keypoint:
+      1. Select the corresponding Gaussian image.
+      2. Estimate the keypoint scale.
+      3. Calculate the Gaussian weighting sigma and radius.
+      4. Compute gradients in the neighborhood.
+      5. Accumulate a Gaussian-weighted orientation histogram.
+      6. Smooth the histogram.
+      7. Create an oriented keypoint for each dominant peak.
+
+    Assumptions:
+      - Each octave contains six Gaussian images.
+      - DoG layer k = Gaussian[k+1] - Gaussian[k].
+      - The Gaussian blur sigma at Gaussian layer j is
+        2**(j / NumberOfImagesPerOctave).
+      - Keypoint coordinates are in octave-local pixels.
+      - Keypoint.layer is the refined DoG layer coordinate.
+
+    Returns:
+        A list of oriented keypoints. A single input keypoint
+        may generate multiple output keypoints.
+    """
+    oriented_keypoints: list[KeyPoint] = []
+
     for keypoint in keypoint_array:
         octave = keypoint.octave
-        spatialWeightingProfile = 1.5 * octave
-        radius = 3 * spatialWeightingProfile
-        gaussianImg = image_pyramid[keypoint.octave][keypoint.layer]
+
+        if not (0 <= octave < len(image_pyramid)):
+            continue
+
+        gaussian_octave = image_pyramid[octave]
+
+        # 1. Map the DoG scale to a Gaussian image.x    
+        # DoG[k] = Gaussian[k+1] - Gaussian[k].
+        gaussian_layer_float = keypoint.layer + 1.0
+
+        gaussian_layer = int(round(gaussian_layer_float))
+        gaussian_layer = max(
+            0,
+            min(gaussian_layer, len(gaussian_octave) - 1),
+        )
+
+        gaussian_img = gaussian_octave[gaussian_layer]
+
+        # 2. Estimate the keypoint's local Gaussian scale.
+        # Use the refined layer coordinate for the scale, rather than the rounded index used to select an image.
+        sigma_keypoint = (
+            2.0 ** (
+                gaussian_layer_float / NumberOfImagesPerOctave
+            )
+        )
+
+        # 3. Compute Gaussian weighting sigma and radius.
+        sigma_weight = 1.5 * sigma_keypoint
+        radius = int(math.ceil(3.0 * sigma_weight))
+
+        # 4. Get the integer pixel around which to sample.
+        x_center = int(round(keypoint.x))
+        y_center = int(round(keypoint.y))
+
+        height, width = gaussian_img.shape[:2]
+
+        x_min = max(1, x_center - radius)
+        x_max = min(width - 1, x_center + radius + 1)
+
+        y_min = max(1, y_center - radius)
+        y_max = min(height - 1, y_center + radius + 1)
+
+        if x_min >= x_max or y_min >= y_max:
+            continue
+
+        # 5. Initialize the orientation histogram.
+        histogram = np.zeros(num_bins, dtype=np.float64)
+
+        bin_width = 2.0 * np.pi / num_bins
+        two_pi = 2.0 * np.pi
+
+        # 6. Compute gradients and accumulate orientations.
+        for y in range(y_min, y_max):
+            for x in range(x_min, x_max):
+
+                dx_from_keypoint = x - keypoint.x
+                dy_from_keypoint = y - keypoint.y
+
+                distance_squared = (
+                    dx_from_keypoint**2
+                    + dy_from_keypoint**2
+                )
+
+                # Gaussian spatial weighting.
+                weight = math.exp(
+                    -distance_squared
+                    / (2.0 * sigma_weight**2)
+                )
+
+                # Gradient at this pixel.
+                dx, dy = _compute_2d_gradient(
+                    gaussian_img, y, x
+                )
+
+                magnitude = math.hypot(dx, dy)
+
+                if magnitude == 0.0:
+                    continue
+
+                # Gradient orientation in [0, 2*pi).
+                angle = math.atan2(dy, dx) % two_pi
+
+                # Convert angle to a continuous histogram bin.
+                bin_position = angle / bin_width
+
+                lower_bin = int(math.floor(bin_position))
+                fraction = bin_position - lower_bin
+
+                lower_bin %= num_bins
+                upper_bin = (lower_bin + 1) % num_bins
+
+                # Weight gradient magnitude by spatial distance,
+                # then interpolate between adjacent bins.
+                contribution = weight * magnitude
+
+                histogram[lower_bin] += (
+                    contribution * (1.0 - fraction)
+                )
+
+                histogram[upper_bin] += (
+                    contribution * fraction
+                )
+
+        # 7. Smooth the circular histogram.
+        histogram = _smooth_orientation_histogram(
+            histogram,
+            iterations=6,
+        )
+
+        # 8. Find the dominant orientation peaks.
+        peak_angles = _find_orientation_peaks(
+            histogram,
+            peak_ratio=orientation_peak_ratio,
+        )
+
+        # 9. Produce an oriented keypoint for each peak.
+        for angle in peak_angles:
+            oriented_keypoints.append(
+                KeyPoint(
+                    x=keypoint.x,
+                    y=keypoint.y,
+                    octave=keypoint.octave,
+                    layer=keypoint.layer,
+                    response=keypoint.response,
+                    orientation=angle,
+                )
+            )
+
+    return oriented_keypoints
+
+def VisualizeKeypoints(
+    
+    image: np.ndarray,
+    keypoints: list[KeyPoint],
+) -> np.ndarray:
+    """
+    Draw custom SIFT keypoints on the original image.
+    """
+
+    output = cv2.cvtColor(
+        image.astype(np.uint8),
+        cv2.COLOR_GRAY2BGR,
+    )
+
+    cv_keypoints = []
+
+    for kp in keypoints:
+        octave_scale = 2 ** kp.octave
+
+        x = kp.x * octave_scale
+        y = kp.y * octave_scale
+
+        # Approximate the detected keypoint's scale.
+        sigma = 2.0 ** (
+            (kp.layer + 1.0) / NumberOfImagesPerOctave
+        )
+
+        size = 2.0 * sigma * octave_scale
+
+        cv_keypoints.append(
+            cv2.KeyPoint(
+                float(x),
+                float(y),
+                float(size),
+                float(math.degrees(kp.orientation)),
+                float(kp.response),
+            )
+        )
+
+    return cv2.drawKeypoints(
+        output,
+        cv_keypoints,
+        None,
+        flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS,
+    )
+
 
 def main():
-    """
-    Example entry point that demonstrates building an image pyramid and
-    computing the Difference-of-Gaussian (DoG) arrays for a test image.
+    input_img = cv2.imread("C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\Tour_Eiffel.jpg", cv2.IMREAD_GRAYSCALE,)
 
-    This function reads a sample image from disk, converts it to grayscale,
-    constructs the pyramid and DoG, and prints a representation of the
-    resulting DoG array.
-    """
-    input_img = cv2.imread("C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\Tour_Eiffel.jpg")
-    input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2GRAY)
-    ImagePyramid = BuildImagePyramids(input_img,3)
-    DoGArray = DifferenceOfGaussian(ImagePyramid)
+    if input_img is None:
+        raise FileNotFoundError("Could not load the input image.")
 
-    print(DoGArray)
+    image_pyramid = BuildImagePyramids(
+        input_img,
+        number_of_layers_in_pyramid=3,
+    )
+
+    dog_pyramid = DifferenceOfGaussian(image_pyramid)
+
+    extrema = ScaleSpaceExtremaDetection(dog_pyramid)
+
+    localized_keypoints = KeypointLocalization(
+        extrema,
+        dog_pyramid,
+    )
+
+    oriented_keypoints = OrientationAssignment(
+        image_pyramid,
+        localized_keypoints,
+    )
+
+    custom_keypoint_image = VisualizeKeypoints(
+    input_img,
+    oriented_keypoints, 
+    )
+
+    cv2.imshow("My SIFT Keypoints", custom_keypoint_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
-    # cv2.imshow("Original Image", input_img)
-
-    # for i in range(len(list_of_images)):
-    #     image = list_of_images[i]
-    #     image_display = np.clip(image, 0, 255).astype(np.uint8)
-
-    #     cv2.imshow(f"Image : {i}", image_display)   
-
-
-    #StartSIFTPipeline()
+if __name__ == "__main__":
+    main()
 
 main()
