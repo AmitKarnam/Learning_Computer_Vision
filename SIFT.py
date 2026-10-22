@@ -608,6 +608,260 @@ def OrientationAssignment(image_pyramid: list[list[np.ndarray]],keypoint_array: 
 
     return oriented_keypoints
 
+def ComputeDescriptor(
+    image_pyramid: list[list[np.ndarray]],
+    keypoint: KeyPoint,
+    num_spatial_bins: int = 4,
+    num_orientation_bins: int = 8,
+) -> np.ndarray | None:
+    """
+    Compute a 128-dimensional SIFT descriptor for one oriented keypoint.
+
+    Uses:
+      - 4 x 4 spatial cells
+      - 8 orientation bins per cell
+      - Trilinear interpolation over x, y, and orientation
+      - Gaussian weighting
+      - L2 normalization, clipping at 0.2, and renormalization
+
+    Assumptions:
+      - Keypoint coordinates are octave-local pixel coordinates.
+      - DoG[k] = Gaussian[k+1] - Gaussian[k].
+      - KeyPoint.layer is the refined DoG layer coordinate.
+      - Gaussian scale at layer j is 2 ** (j / 3).
+
+    Returns:
+        A normalized 128-dimensional descriptor, or None if the
+        keypoint is too close to the image boundary.
+    """
+
+    d = num_spatial_bins
+    n = num_orientation_bins
+
+    # --------------------------------------------------
+    # 1. Select the Gaussian image for this keypoint.
+    # --------------------------------------------------
+    octave = keypoint.octave
+
+    if not (0 <= octave < len(image_pyramid)):
+        return None
+
+    gaussian_octave = image_pyramid[octave]
+
+    gaussian_layer_float = keypoint.layer + 1.0
+    gaussian_layer = int(round(gaussian_layer_float))
+
+    gaussian_layer = max(
+        0,
+        min(gaussian_layer, len(gaussian_octave) - 1),
+    )
+
+    image = gaussian_octave[gaussian_layer].astype(
+        np.float64, copy=False
+    )
+
+    height, width = image.shape
+
+    # --------------------------------------------------
+    # 2. Estimate the keypoint scale.
+    # --------------------------------------------------
+    sigma_keypoint = 2.0 ** (
+        gaussian_layer_float / NumberOfImagesPerOctave
+    )
+
+    # Spatial histogram spacing in octave-local pixels.
+    hist_width = 3.0 * sigma_keypoint
+
+    # Gaussian weighting standard deviation.
+    sigma_descriptor = 2.0 * hist_width
+
+    # --------------------------------------------------
+    # 3. Set up the rotated descriptor window.
+    # --------------------------------------------------
+    cos_t = math.cos(keypoint.orientation)
+    sin_t = math.sin(keypoint.orientation)
+
+    # Bounding radius large enough to cover the rotated grid.
+    radius = int(
+        round(
+            hist_width
+            * math.sqrt(2.0)
+            * (d + 1)
+            * 0.5
+        )
+    )
+
+    x_center = int(round(keypoint.x))
+    y_center = int(round(keypoint.y))
+
+    # Gradients require neighboring pixels.
+    if (
+        x_center - radius < 1
+        or x_center + radius >= width - 1
+        or y_center - radius < 1
+        or y_center + radius >= height - 1
+    ):
+        return None
+
+    # --------------------------------------------------
+    # 4. Initialize the 4 x 4 x 8 histogram.
+    # --------------------------------------------------
+    histogram = np.zeros((d, d, n), dtype=np.float64)
+
+    two_pi = 2.0 * math.pi
+
+    # --------------------------------------------------
+    # 5. Visit pixels in the descriptor neighborhood.
+    # --------------------------------------------------
+    for y in range(
+        y_center - radius,
+        y_center + radius + 1,
+    ):
+        for x in range(
+            x_center - radius,
+            x_center + radius + 1,
+        ):
+
+            # Position relative to the keypoint.
+            dx = x - keypoint.x
+            dy = y - keypoint.y
+
+            # Rotate coordinates into the keypoint frame.
+            x_rot = dx * cos_t + dy * sin_t
+            y_rot = -dx * sin_t + dy * cos_t
+
+            # Convert to continuous spatial histogram coordinates.
+            x_bin = x_rot / hist_width + d / 2.0 - 0.5
+            y_bin = y_rot / hist_width + d / 2.0 - 0.5
+
+            # Skip pixels that cannot contribute to any cell.
+            if not (
+                -1.0 <= x_bin < d
+                and -1.0 <= y_bin < d
+            ):
+                continue
+
+            # ------------------------------------------
+            # 6. Calculate image gradients.
+            # ------------------------------------------
+            dx_img = 0.5 * (
+                image[y, x + 1] - image[y, x - 1]
+            )
+
+            dy_img = 0.5 * (
+                image[y + 1, x] - image[y - 1, x]
+            )
+
+            magnitude = math.hypot(dx_img, dy_img)
+
+            if magnitude == 0.0:
+                continue
+
+            angle = math.atan2(dy_img, dx_img) % two_pi
+
+            # Express orientation relative to keypoint.
+            relative_angle = (
+                angle - keypoint.orientation
+            ) % two_pi
+
+            # Continuous orientation-bin coordinate.
+            orientation_bin = (
+                relative_angle * n / two_pi
+            )
+
+            # ------------------------------------------
+            # 7. Apply Gaussian weighting.
+            # ------------------------------------------
+            gaussian_weight = math.exp(
+                -(x_rot**2 + y_rot**2)
+                / (2.0 * sigma_descriptor**2)
+            )
+
+            contribution = magnitude * gaussian_weight
+
+            # ------------------------------------------
+            # 8. Trilinear interpolation.
+            # ------------------------------------------
+            x0 = math.floor(x_bin)
+            y0 = math.floor(y_bin)
+            o0 = math.floor(orientation_bin)
+
+            fx = x_bin - x0
+            fy = y_bin - y0
+            fo = orientation_bin - o0
+
+            for xi, wx in ((x0, 1.0 - fx), (x0 + 1, fx)):
+                if not (0 <= xi < d):
+                    continue
+
+                for yi, wy in ((y0, 1.0 - fy), (y0 + 1, fy)):
+                    if not (0 <= yi < d):
+                        continue
+
+                    for oi, wo in (
+                        (o0, 1.0 - fo),
+                        (o0 + 1, fo),
+                    ):
+                        oi %= n
+
+                        histogram[yi, xi, oi] += (
+                            contribution * wx * wy * wo
+                        )
+
+    # --------------------------------------------------
+    # 9. Flatten the histogram into 128 values.
+    # --------------------------------------------------
+    descriptor = histogram.ravel()
+
+    # --------------------------------------------------
+    # 10. L2 normalize.
+    # --------------------------------------------------
+    norm = np.linalg.norm(descriptor)
+
+    if norm < 1e-12:
+        return None
+
+    descriptor /= norm
+
+    # --------------------------------------------------
+    # 11. Clip large values and normalize again.
+    # --------------------------------------------------
+    descriptor = np.clip(descriptor, 0.0, 0.2)
+
+    norm = np.linalg.norm(descriptor)
+
+    if norm < 1e-12:
+        return None
+
+    descriptor /= norm
+
+    return descriptor
+
+def ComputeDescriptors(
+    image_pyramid: list[list[np.ndarray]],
+    keypoints: list[KeyPoint],
+) -> tuple[list[KeyPoint], np.ndarray]:
+
+    valid_keypoints = []
+    descriptors = []
+
+    for keypoint in keypoints:
+        descriptor = ComputeDescriptor(
+            image_pyramid,
+            keypoint,
+        )
+
+        if descriptor is None:
+            continue
+
+        valid_keypoints.append(keypoint)
+        descriptors.append(descriptor)
+
+    if not descriptors:
+        return valid_keypoints, np.empty((0, 128), dtype=np.float64)
+
+    return valid_keypoints, np.vstack(descriptors)
+
 def VisualizeKeypoints(
     
     image: np.ndarray,
@@ -688,6 +942,22 @@ def main():
     cv2.imshow("My SIFT Keypoints", custom_keypoint_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+    # descriptor_keypoints, descriptors = ComputeDescriptors(
+    #     image_pyramid,
+    #     oriented_keypoints, 
+    # )
+
+   
+
+    # print("Oriented keypoints:", len(oriented_keypoints))
+    # print("Keypoints with descriptors:", len(descriptor_keypoints))
+    # print("Descriptor matrix shape:", descriptors.shape)
+
+    # if len(descriptors) > 0:
+    #     print("First descriptor:")
+    #     print(descriptors[0])
+    #     print("Descriptor norm:", np.linalg.norm(descriptors[0]))
 
 
 if __name__ == "__main__":
