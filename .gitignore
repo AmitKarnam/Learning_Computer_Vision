@@ -23,6 +23,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Backup files
+*.bak
+
 # virtualenv
 .pipenv
 pipenv.lock
