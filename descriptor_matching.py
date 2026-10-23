@@ -96,27 +96,27 @@ def main():
 
     cv2.imshow("SIFT + KNN + RANSAC", result)
 
-    # # # For SIFT + BF with regular matches + CrossCheck set to False
-    # matches = BruteForceSearchWithRegularMatchesCrossCheckFalse(descriptorsA,descriptorsB)
-    # SIFT_BF_REGULAR_MATCHES  = cv2.drawMatches(imgA, keypointsA, imgB, keypointsB, matches[:100], None,  flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    # cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force with Regular matching and Cross Check False", SIFT_BF_REGULAR_MATCHES)
+    # # For SIFT + BF with regular matches + CrossCheck set to False
+    matches = BruteForceSearchWithRegularMatchesCrossCheckFalse(descriptorsA,descriptorsB)
+    SIFT_BF_REGULAR_MATCHES  = cv2.drawMatches(imgA, keypointsA, imgB, keypointsB, matches[:100], None,  flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force with Regular matching and Cross Check False", SIFT_BF_REGULAR_MATCHES)
 
-    # # # For SIFT + BF with regular matches + CrossCheck set to True
-    # matches = BruteForceSearchWithRegularMatchesCrossCheckTrue(descriptorsA,descriptorsB)
-    # SIFT_BF_REGULAR_MATCHES  = cv2.drawMatches(imgA, keypointsA, imgB, keypointsB, matches[:100], None,  flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    # cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force with Regular matching and Cross Check True", SIFT_BF_REGULAR_MATCHES)
+    # # For SIFT + BF with regular matches + CrossCheck set to True
+    matches = BruteForceSearchWithRegularMatchesCrossCheckTrue(descriptorsA,descriptorsB)
+    SIFT_BF_REGULAR_MATCHES  = cv2.drawMatches(imgA, keypointsA, imgB, keypointsB, matches[:100], None,  flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force with Regular matching and Cross Check True", SIFT_BF_REGULAR_MATCHES)
 
-    # # For SIFT + BF with KNN
-    # good_descriptors = BruteForceSearchWithSiftKNN(descriptorsA=descriptorsA,descriptorsB=descriptorsB)
-    # SIFT_BF_KNN_imgResult = cv2.drawMatchesKnn(imgA,keypointsA,imgB,keypointsB,good_descriptors,None,flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    # cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force KNN matching",SIFT_BF_KNN_imgResult)
+    # For SIFT + BF with KNN
+    good_descriptors = BruteForceSearchWithSiftKNN(descriptorsA=descriptorsA,descriptorsB=descriptorsB)
+    SIFT_BF_KNN_imgResult = cv2.drawMatchesKnn(imgA,keypointsA,imgB,keypointsB,good_descriptors,None,flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv2.imshow("Resultant descriptor comparision from SIFT and Brute-Force KNN matching",SIFT_BF_KNN_imgResult)
 
-    # # For ORB + BF with KNN
-    # keypointsORB_A, descriptorsORB_A = ComputerDescriptorsORB(imgA)
-    # keypointsORB_B, descriptorsORB_B = ComputerDescriptorsORB(imgB)
-    # good_descriptors = BruteForceSearchWithORB(descriptorsORB_A,descriptorsORB_B)
-    # ORB_BF_KNN_imgResult = cv2.drawMatches(imgA, keypointsORB_A, imgB, keypointsORB_B, good_descriptors, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    # cv2.imshow("Resultant descriptor comparision from ORB and Brute-ForceKNN matching", ORB_BF_KNN_imgResult)
+    # For ORB + BF with KNN
+    keypointsORB_A, descriptorsORB_A = ComputerDescriptorsORB(imgA)
+    keypointsORB_B, descriptorsORB_B = ComputerDescriptorsORB(imgB)
+    good_descriptors = BruteForceSearchWithORB(descriptorsORB_A,descriptorsORB_B)
+    ORB_BF_KNN_imgResult = cv2.drawMatches(imgA, keypointsORB_A, imgB, keypointsORB_B, good_descriptors, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    cv2.imshow("Resultant descriptor comparision from ORB and Brute-ForceKNN matching", ORB_BF_KNN_imgResult)
     
     cv2.waitKey(0)
     cv2.destroyAllWindows()
