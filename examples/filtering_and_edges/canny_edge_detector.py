@@ -1,8 +1,11 @@
 import numpy as np
 import cv2
-from convolution import calculate_padding_length, build_new_image_matrix_with_reflect_padding
+from examples.common import load_image, make_contact_sheet, save_image, show_images
+from examples.filtering_and_edges.convolution import (
+    build_new_image_matrix_with_reflect_padding,
+    calculate_padding_length,
+)
 
-imgPath = "C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 def SobelConvolute(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """
@@ -103,12 +106,12 @@ def NonMaximaSupression(magnitude: np.ndarray, direction: np.ndarray) -> np.ndar
                     neighbor2 = magnitude[i,j+1,ch]
 
                 # if angle is 22.5 to 67.5 ( 45 degree )
-                if 22.5 <= angle < 67.5:
+                elif 22.5 <= angle < 67.5:
                     neighbor1 = magnitude[i-1,j+1,ch]
                     neighbor2 = magnitude[i+1,j-1,ch]
 
                 # if angle is 67.5 to 112.5 ( 90 degree )
-                if 67.5 <= angle < 112.5:
+                elif 67.5 <= angle < 112.5:
                     neighbor1 = magnitude[i-1,j,ch]
                     neighbor2 = magnitude[i+1,j,ch]
 
@@ -127,7 +130,6 @@ def NonMaximaSupression(magnitude: np.ndarray, direction: np.ndarray) -> np.ndar
 def DoubleThreshold(magnitude: np.ndarray) -> np.ndarray:
     HIGH = magnitude.max() * 0.2
     LOW = HIGH * 0.5
-
     rows,colums,ch = magnitude.shape
 
     result = np.zeros((rows,colums,ch), dtype=np.float32)
@@ -147,10 +149,12 @@ def HysteresisThreshold(DoubleThresholdArray: np.ndarray) -> np.ndarray:
     """
     Traversal of the array to check if the strong edge is connected to weak edge using DFS
     """
-    HIGH = magnitude.max() * 0.2
+    HIGH = float(DoubleThresholdArray.max())
+    if HIGH == 0:
+        return np.zeros_like(DoubleThresholdArray)
     LOW = HIGH * 0.5
 
-    rows, colums, ch = magnitude.shape
+    rows, colums, ch = DoubleThresholdArray.shape
 
     visited = np.zeros((rows, colums, ch), dtype=np.float32)
     result = np.zeros((rows, colums, ch), dtype=np.float32)
@@ -198,45 +202,34 @@ def HysteresisThreshold(DoubleThresholdArray: np.ndarray) -> np.ndarray:
 
 
 if __name__ == "__main__":
-    originalImg = cv2.imread(imgPath)
+    originalImg = load_image("rocks.jpg")
     img = originalImg.astype(np.float32)
     gx, gy, magnitude, direction = ComputeSobelEdges(img)
 
-    magnitude_display = np.clip(
-        magnitude,
-        0,
-        255
-    ).astype(np.uint8)
-
     NMSArray = NonMaximaSupression(magnitude,direction)
-    #print(NMSArray)
 
     DoubleThresholdResult = DoubleThreshold(NMSArray)
-    #print(DoubleThresholdResult)
 
     HysteresisThresholdResult = HysteresisThreshold(DoubleThresholdResult)
 
-    cv2.imshow("Original Image", originalImg)
-
-    #cv2.imshow("Sobel Magnitude", magnitude_display)
-
-    #cv2.imshow("Sobel + NMS", NMSArray.astype(np.uint8))
-
-    #cv2.imshow("After Double Thresholding", DoubleThresholdResult.astype(np.uint8))
-
-    cv2.imshow("After Hysteresis Thresholding", HysteresisThresholdResult.astype(np.uint8))
-
-    greyHysteresisImg = cv2.cvtColor(HysteresisThresholdResult,cv2.COLOR_BGR2GRAY)
-
-    cv2.imshow("After Hysteresis Thresholding Gray IMG", greyHysteresisImg)
-
     HIGH = magnitude.max() * 0.2
     LOW = HIGH * 0.5
-
-    cannyUsingCV2 = cv2.Canny(originalImg, threshold1=LOW, threshold2=HIGH)
-
-
-    cv2.imshow("Canny edge using cv2", cannyUsingCV2)
-    
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    gray = cv2.cvtColor(originalImg, cv2.COLOR_BGR2GRAY)
+    cannyUsingCV2 = cv2.Canny(gray, threshold1=LOW, threshold2=HIGH)
+    suppressed_display = cv2.normalize(
+        NMSArray,
+        None,
+        0,
+        255,
+        cv2.NORM_MINMAX,
+    ).astype(np.uint8)
+    results = [
+        ("Original", originalImg),
+        ("Non-maximum suppression", suppressed_display),
+        ("Double threshold", DoubleThresholdResult.astype(np.uint8)),
+        ("Custom hysteresis", HysteresisThresholdResult.astype(np.uint8)),
+        ("OpenCV Canny", cannyUsingCV2),
+    ]
+    result = make_contact_sheet(results, columns=2)
+    save_image("filtering_and_edges/canny_edge_detector/edge_stages.png", result)
+    show_images([("Canny edge detection", result)])

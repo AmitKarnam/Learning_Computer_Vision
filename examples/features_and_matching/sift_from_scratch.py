@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import math
 from dataclasses import dataclass
+from examples.common import load_image, save_image, show_images
 
 NumberOfImagesPerOctave = 3.0
 NumberOfGaussianImagesPerOctave = NumberOfImagesPerOctave + 3.0 # We need enough images to calculate the DoG
@@ -910,10 +911,7 @@ def VisualizeKeypoints(
 
 
 def main():
-    input_img = cv2.imread("C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\Tour_Eiffel.jpg", cv2.IMREAD_GRAYSCALE,)
-
-    if input_img is None:
-        raise FileNotFoundError("Could not load the input image.")
+    input_img = load_image("Tour_Eiffel.jpg", cv2.IMREAD_GRAYSCALE)
 
     image_pyramid = BuildImagePyramids(
         input_img,
@@ -933,34 +931,25 @@ def main():
         image_pyramid,
         localized_keypoints,
     )
+    descriptor_keypoints, descriptors = ComputeDescriptors(
+        image_pyramid,
+        oriented_keypoints,
+    )
+    print("Oriented keypoints:", len(oriented_keypoints))
+    print("Keypoints with descriptors:", len(descriptor_keypoints))
+    print("Descriptor matrix shape:", descriptors.shape)
 
     custom_keypoint_image = VisualizeKeypoints(
-    input_img,
-    oriented_keypoints, 
+        input_img,
+        oriented_keypoints,
     )
 
-    cv2.imshow("My SIFT Keypoints", custom_keypoint_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-    # descriptor_keypoints, descriptors = ComputeDescriptors(
-    #     image_pyramid,
-    #     oriented_keypoints, 
-    # )
-
-   
-
-    # print("Oriented keypoints:", len(oriented_keypoints))
-    # print("Keypoints with descriptors:", len(descriptor_keypoints))
-    # print("Descriptor matrix shape:", descriptors.shape)
-
-    # if len(descriptors) > 0:
-    #     print("First descriptor:")
-    #     print(descriptors[0])
-    #     print("Descriptor norm:", np.linalg.norm(descriptors[0]))
+    save_image(
+        "features_and_matching/sift_from_scratch/keypoints.png",
+        custom_keypoint_image,
+    )
+    show_images([("SIFT keypoints", custom_keypoint_image)])
 
 
 if __name__ == "__main__":
     main()
-
-main()

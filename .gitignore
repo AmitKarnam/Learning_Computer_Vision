@@ -29,3 +29,6 @@ venv.bak/
 # virtualenv
 .pipenv
 pipenv.lock
+
+# Generated example results
+outputs/

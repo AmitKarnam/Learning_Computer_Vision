@@ -1,9 +1,14 @@
 import cv2
 import numpy as np
+import sys
+import matplotlib
+
+if "--show" not in sys.argv:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from examples.common import load_image, output_path
 
-IMAGE_PATH = r"C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 # Half strip size.
 # Actual strip height = 2 * STRIP_HALF_HEIGHT
@@ -12,14 +17,8 @@ STRIP_HALF_HEIGHT = 10
 
 class ImageGradientAnalyzer:
 
-    def __init__(self, image_path):
-
-        self.img_bgr = cv2.imread(image_path)
-
-        if self.img_bgr is None:
-            raise Exception(
-                f"Unable to load image: {image_path}"
-            )
+    def __init__(self, image_bgr):
+        self.img_bgr = image_bgr
 
         self.img = cv2.cvtColor(
             self.img_bgr,
@@ -404,6 +403,14 @@ class ImageGradientAnalyzer:
         self.fig.tight_layout()
 
         self.fig.canvas.draw_idle()
+        self.fig.savefig(
+            output_path("filtering_and_edges/image_gradient_analysis/gradient_profile.png"),
+            dpi=150,
+        )
+        print(
+            "Saved plot: "
+            "outputs/filtering_and_edges/image_gradient_analysis/gradient_profile.png"
+        )
 
         print(
             f"Row={self.selected_row} | "
@@ -432,15 +439,13 @@ class ImageGradientAnalyzer:
         self.update_display()
 
     def run(self):
-
-        plt.show()
+        if "--show" in sys.argv:
+            plt.show()
 
 
 def main():
 
-    analyzer = ImageGradientAnalyzer(
-        IMAGE_PATH
-    )
+    analyzer = ImageGradientAnalyzer(load_image("rocks.jpg"))
 
     analyzer.run()
 

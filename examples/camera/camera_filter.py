@@ -1,92 +1,60 @@
+"""Switch between live camera filters and save the current result."""
+
+from datetime import datetime
+
 import cv2
-# import sys
-# import numpy
 
-# PREVIEW  = 0  # Preview Mode
-# BLUR     = 1  # Blurring Filter
-# FEATURES = 2  # Corner Feature Detector
-# CANNY    = 3  # Canny Edge Detector
+from examples.common import make_contact_sheet, save_image
 
-# feature_params = dict(maxCorners=500, qualityLevel=0.2, minDistance=15, blockSize=9)
-# s = 0
-# if len(sys.argv) > 1:
-#     s = sys.argv[1]
 
-# image_filter = PREVIEW
-# alive = True
+FILTERS = ("Original", "Gaussian blur", "Canny edges", "Adaptive threshold")
 
-# win_name = "Camera Filters"
-# cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-# result = None
 
-# source = cv2.VideoCapture(s)
+def main() -> None:
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
+        camera.release()
+        raise RuntimeError("Could not open camera device 0.")
 
-# while alive:
-#     has_frame, frame = source.read()
-#     if not has_frame:
-#         break
+    selected_filter = 0
+    try:
+        while True:
+            success, frame = camera.read()
+            if not success:
+                raise RuntimeError("Could not read a frame from camera device 0.")
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            if selected_filter == 0:
+                result = frame
+            elif selected_filter == 1:
+                result = cv2.GaussianBlur(frame, (13, 13), 0)
+            elif selected_filter == 2:
+                result = cv2.Canny(gray, 80, 150)
+            else:
+                result = cv2.adaptiveThreshold(
+                    gray,
+                    255,
+                    cv2.ADAPTIVE_THRESH_MEAN_C,
+                    cv2.THRESH_BINARY,
+                    11,
+                    7,
+                )
+            cv2.imshow(
+                f"{FILTERS[selected_filter]} | 1-4 change filter, s save, q quit",
+                result,
+            )
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("1"), ord("2"), ord("3"), ord("4")):
+                selected_filter = key - ord("1")
+            elif key == ord("s"):
+                sheet = make_contact_sheet([(FILTERS[selected_filter], result)])
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                save_image(f"camera/filter_{timestamp}.png", sheet)
+            elif key == ord("q"):
+                break
+    finally:
+        camera.release()
+        cv2.destroyAllWindows()
 
-#     frame = cv2.flip(frame, 1)
 
-#     if image_filter == PREVIEW:
-#         result = frame
-#     elif image_filter == CANNY:
-#         result = cv2.Canny(frame, 80, 150)
-#     elif image_filter == BLUR:
-#         result = cv2.blur(frame, (13, 13))
-#     elif image_filter == FEATURES:
-#         result = frame
-#         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-#         corners = cv2.goodFeaturesToTrack(frame_gray, **feature_params)
-#         if corners is not None:
-#             for x, y in numpy.float32(corners).reshape(-1, 2):
-#                 cv2.circle(result, (x, y), 10, (0, 255, 0), 1)
-
-#     cv2.imshow(win_name, result)
-
-#     key = cv2.waitKey(1)
-#     if key == ord("Q") or key == ord("q") or key == 27:
-#         alive = False
-#     elif key == ord("C") or key == ord("c"):
-#         image_filter = CANNY
-#     elif key == ord("B") or key == ord("b"):
-#         image_filter = BLUR
-#     elif key == ord("F") or key == ord("f"):
-#         image_filter = FEATURES
-#     elif key == ord("P") or key == ord("p"):
-#         image_filter = PREVIEW
-
-# source.release()
-# cv2.destroyWindow(win_name)
-
-cam = cv2.VideoCapture(0)
-
-while True:
-    ret,frame = cam.read()
-    if not ret:
-        print("Unable to read image")
-        break   
-    # convert to single-channel grayscale (correct conversion code)
-    grayScaleFrame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # ensure dtype is uint8 (frames from VideoCapture are normally uint8)
-    if grayScaleFrame.dtype != 'uint8':
-        grayScaleFrame = (grayScaleFrame * 255).astype('uint8')
-
-    binaryThreshImage = cv2.adaptiveThreshold(
-        grayScaleFrame,
-        255,
-        cv2.ADAPTIVE_THRESH_MEAN_C,
-        cv2.THRESH_BINARY,
-        11,
-        7,
-    )
-
-    cv2.imshow("Thresholded Image", binaryThreshImage)
-    # Press 'q' to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-# cleanup after loop
-cam.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()

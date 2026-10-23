@@ -1,7 +1,6 @@
 import numpy as np
-import cv2
+from examples.common import load_image, make_contact_sheet, save_image, show_images
 
-imgPath = "C:\\Users\\amitk\\workspace\\Learning_Computer_Vision\\images\\rocks.jpg"
 
 def calculate_padding_length(n: int) -> int:
     if n == 0 or n%2 == 0:
@@ -26,7 +25,7 @@ def BoxBlurConvolute(img: np.ndarray) -> np.ndarray:
 
     padding_length = calculate_padding_length(len(kernel))
     if padding_length <= 0:
-        raise "Error with padding length"
+        raise ValueError("Kernel size must be an odd positive integer.")
 
     paddedImg = build_new_image_matrix_with_reflect_padding(img, padding_length)
 
@@ -55,7 +54,7 @@ def GuassianBlurConvolute(img: np.array) -> np.ndarray:
 
     paddingLength = calculate_padding_length(k)
     if paddingLength < 0:
-        raise "Error calculating padding length"
+        raise ValueError("Kernel size must be an odd positive integer.")
     
     paddedImg = build_new_image_matrix_with_reflect_padding(img,paddingLength)
 
@@ -157,9 +156,7 @@ def LaplaceConvolute(img: np.array) -> np.ndarray:
 
 
 def main():
-    img = cv2.imread(imgPath)
-    img = img.astype(np.float32)
-    #img = np.array([[[1,2,3],[4,5,6],[7,8,9]],[[10,11,12],[13,14,15],[16,17,18]],[[19,20,21],[22,23,24],[25,26,27]]])
+    img = load_image("rocks.jpg").astype(np.float32)
     boxBlur = BoxBlurConvolute(img)
     gaussianBlur = GuassianBlurConvolute(img)
     xAxisEdge = SobelXConvolute(img)
@@ -167,18 +164,19 @@ def main():
     laplaceConvolution = LaplaceConvolute(img)
     laplaceOverGuassian = LaplaceConvolute(gaussianBlur)
 
-    cv2.imshow("Original Image", img.astype(np.uint8))
-    cv2.imshow("Convolution Image", boxBlur)
-    cv2.imshow("Gaussian Blur Image", gaussianBlur)
-    cv2.imshow("Sobel X Convolution", xAxisEdge)
-    cv2.imshow("Sobel Y Convolution", yAxisEdge)
-    cv2.imshow("Laplace Convolution", laplaceConvolution)
-    cv2.imshow("Laplace over a gussian", laplaceOverGuassian)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    results = [
+        ("Original", img.astype(np.uint8)),
+        ("Box blur", boxBlur),
+        ("Gaussian blur", gaussianBlur),
+        ("Sobel X", xAxisEdge),
+        ("Sobel Y", yAxisEdge),
+        ("Laplacian", laplaceConvolution),
+        ("Laplacian after Gaussian", laplaceOverGuassian),
+    ]
+    result = make_contact_sheet(results, columns=2)
+    save_image("filtering_and_edges/convolution/kernels.png", result)
+    show_images([("Convolution kernels", result)])
 
 
 if __name__ == "__main__":
     main()
-
-

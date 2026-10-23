@@ -1,23 +1,23 @@
+"""Resize and combine two images using saturated pixel addition."""
+
 import cv2
 
-def main():
-    try:
-        img1 = cv2.imread("./images/checkerboard_color.png")
-        img2 = cv2.imread("./images/rectangle.jpg")
+from examples.common import load_image, make_contact_sheet, save_image, show_images
 
-        h2, w2 = img2.shape[:2]
-        img1_resized = cv2.resize(img1, (w2, h2),
-                              interpolation=cv2.INTER_AREA if (img1.shape[0] > h2 or img1.shape[1] > w2) else cv2.INTER_CUBIC)
-    
-    except Exception as e:
-        print("An error occured",e)
 
-    finalImg = cv2.add(img2,img1_resized)
+def main() -> None:
+    background = load_image("rectangle.jpg")
+    overlay = load_image("checkerboard_color.png")
+    height, width = background.shape[:2]
+    overlay = cv2.resize(overlay, (width, height), interpolation=cv2.INTER_AREA)
+    combined = cv2.addWeighted(background, 0.5, overlay, 0.5, 0)
+    result = make_contact_sheet(
+        [("Background", background), ("Overlay", overlay), ("50/50 blend", combined)],
+        columns=3,
+    )
+    save_image("image_operations/image_addition/blended_images.png", result)
+    show_images([("Image addition", result)])
 
-    cv2.imshow("Final Image after adding",finalImg)
-    cv2.waitKey(0)
-
-    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()
